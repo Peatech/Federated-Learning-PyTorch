@@ -27,16 +27,16 @@ if __name__ == '__main__':
     logger = SummaryWriter('../logs')
 
     args = args_parser()
-    exp_details(args)
+    exp_details(args) # Lists the experimental details.
 
     if args.gpu:
         torch.cuda.set_device(args.gpu)
     device = 'cuda' if args.gpu else 'cpu'
 
-    # load dataset and user groups
+    # load dataset and user groups (this indicates the type of data split whether iid or non-iid)
     train_dataset, test_dataset, user_groups = get_dataset(args)
 
-    # BUILD MODEL
+    # BUILD MODEL ( Based on the arguments passed, the model is asssigned). This step is simply for selecting model
     if args.model == 'cnn':
         # Convolutional neural netork
         if args.dataset == 'mnist':
@@ -63,7 +63,15 @@ if __name__ == '__main__':
     print(global_model)
 
     # copy weights
-    global_weights = global_model.state_dict()
+    """
+    In PyTorch, every model (or more specifically, every nn.Module subclass) has a state_dict(). It contains all the 
+    learnable parameters of the model, including: Weights of the layers, Biases of the layers and Other tunable parameters.
+    In federated learning, state_dict() plays a crucial role in communication between the server and clients. 
+    The server sends the global model's state_dict() to the clients, and each client updates this state_dict() 
+    with their locally trained model parameters. After training, the clients send their state_dict() back to the server, 
+    which averages the parameters to update the global model.
+    """
+    global_weights = global_model.state_dict()  # This contains all the learnable parameters
 
     # Training
     train_loss, train_accuracy = [], []
@@ -72,26 +80,40 @@ if __name__ == '__main__':
     print_every = 2
     val_loss_pre, counter = 0, 0
 
+    # Global Training Loop (Federated Training Rounds)
     for epoch in tqdm(range(args.epochs)):
         local_weights, local_losses = [], []
         print(f'\n | Global Training Round : {epoch+1} |\n')
 
         global_model.train()
+       
+        # The fraction of users participating in each round. If frac = 0.1 and there are 100 users, then only 10 users will participate in the training round.
         m = max(int(args.frac * args.num_users), 1)
+       
+        # This list holds the indices of randomly selected users for this training round.
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
 
+        # Local Model Updates (Client-Side Training)
         for idx in idxs_users:
+            """
+            A LocalUpdate object is created for the user, which trains the user's local model using their own subset 
+            of the dataset (user_groups[idx]). This class is defined in the update.py script.
+            """
             local_model = LocalUpdate(args=args, dataset=train_dataset,
                                       idxs=user_groups[idx], logger=logger)
+            """
+             After the LocalUpdate object is created for a user, the update_weights() function is called 
+             to actually perform the local training of the user's model. 
+            """
             w, loss = local_model.update_weights(
                 model=copy.deepcopy(global_model), global_round=epoch)
             local_weights.append(copy.deepcopy(w))
             local_losses.append(copy.deepcopy(loss))
 
-        # update global weights
+        # update global weights with the average weights from all the users
         global_weights = average_weights(local_weights)
 
-        # update global weights
+        # update global weights. This loads the saved parameters back into the gloabal model 
         global_model.load_state_dict(global_weights)
 
         loss_avg = sum(local_losses) / len(local_losses)
@@ -121,10 +143,16 @@ if __name__ == '__main__':
     print("|---- Avg Train Accuracy: {:.2f}%".format(100*train_accuracy[-1]))
     print("|---- Test Accuracy: {:.2f}%".format(100*test_acc))
 
+
+    # Define the directory path where you want to save the file
+    save_dir = '../save/objects/'
+
+    # Ensure the directory exists, create it if it doesn't
+    if not os.path.exists(save_dir):
+    os.makedirs(save_dir)
     # Saving the objects train_loss and train_accuracy:
-    file_name = '../save/objects/{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}].pkl'.\
-        format(args.dataset, args.model, args.epochs, args.frac, args.iid,
-               args.local_ep, args.local_bs)
+    file_name = os.path.join(save_dir, '{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}].pkl'.format(
+        args.dataset, args.model, args.epochs, args.frac, args.iid, args.local_ep, args.local_bs))
 
     with open(file_name, 'wb') as f:
         pickle.dump([train_loss, train_accuracy], f)
