@@ -149,7 +149,7 @@ if __name__ == '__main__':
 
     # Ensure the directory exists, create it if it doesn't
     if not os.path.exists(save_dir):
-    os.makedirs(save_dir)
+        os.makedirs(save_dir)
     # Saving the objects train_loss and train_accuracy:
     file_name = os.path.join(save_dir, '{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}].pkl'.format(
         args.dataset, args.model, args.epochs, args.frac, args.iid, args.local_ep, args.local_bs))
