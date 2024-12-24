@@ -1,7 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# Python version: 3.6
-
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
@@ -29,7 +25,7 @@ class LocalUpdate(object):
         self.logger = logger
         self.trainloader, self.validloader, self.testloader = self.train_val_test(
             dataset, list(idxs))
-        self.device = 'cuda' if args.gpu else 'cpu'
+        self.device = torch.device('cuda' if args.gpu and torch.cuda.is_available() else 'cpu')
         # Default criterion set to NLL loss function
         self.criterion = nn.NLLLoss().to(self.device)
 
@@ -39,21 +35,22 @@ class LocalUpdate(object):
         and user indexes.
         """
         # split indexes for train, validation, and test (80, 10, 10)
-        idxs_train = idxs[:int(0.8*len(idxs))]
-        idxs_val = idxs[int(0.8*len(idxs)):int(0.9*len(idxs))]
-        idxs_test = idxs[int(0.9*len(idxs)):]
+        idxs_train = idxs[:int(0.8 * len(idxs))]
+        idxs_val = idxs[int(0.8 * len(idxs)):int(0.9 * len(idxs))]
+        idxs_test = idxs[int(0.9 * len(idxs)):]
 
         trainloader = DataLoader(DatasetSplit(dataset, idxs_train),
                                  batch_size=self.args.local_bs, shuffle=True)
         validloader = DataLoader(DatasetSplit(dataset, idxs_val),
-                                 batch_size=int(len(idxs_val)/10), shuffle=False)
+                                 batch_size=max(1, int(len(idxs_val) / 10)), shuffle=False)
         testloader = DataLoader(DatasetSplit(dataset, idxs_test),
-                                batch_size=int(len(idxs_test)/10), shuffle=False)
+                                batch_size=max(1, int(len(idxs_test) / 10)), shuffle=False)
         return trainloader, validloader, testloader
 
     def update_weights(self, model, global_round):
         # Set mode to train model
         model.train()
+        model.to(self.device)
         epoch_loss = []
 
         # Set optimizer for the local updates
@@ -82,15 +79,15 @@ class LocalUpdate(object):
                         100. * batch_idx / len(self.trainloader), loss.item()))
                 self.logger.add_scalar('loss', loss.item())
                 batch_loss.append(loss.item())
-            epoch_loss.append(sum(batch_loss)/len(batch_loss))
+            epoch_loss.append(sum(batch_loss) / len(batch_loss))
 
         return model.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
     def inference(self, model):
         """ Returns the inference accuracy and loss.
         """
-
         model.eval()
+        model.to(self.device)
         loss, total, correct = 0.0, 0.0, 0.0
 
         for batch_idx, (images, labels) in enumerate(self.testloader):
@@ -107,21 +104,20 @@ class LocalUpdate(object):
             correct += torch.sum(torch.eq(pred_labels, labels)).item()
             total += len(labels)
 
-        accuracy = correct/total
+        accuracy = correct / total
         return accuracy, loss
 
 
 def test_inference(args, model, test_dataset):
     """ Returns the test accuracy and loss.
     """
-
     model.eval()
+    device = torch.device('cuda' if args.gpu and torch.cuda.is_available() else 'cpu')
+    model.to(device)
     loss, total, correct = 0.0, 0.0, 0.0
 
-    device = 'cuda' if args.gpu else 'cpu'
     criterion = nn.NLLLoss().to(device)
-    testloader = DataLoader(test_dataset, batch_size=128,
-                            shuffle=False)
+    testloader = DataLoader(test_dataset, batch_size=128, shuffle=False)
 
     for batch_idx, (images, labels) in enumerate(testloader):
         images, labels = images.to(device), labels.to(device)
@@ -137,5 +133,5 @@ def test_inference(args, model, test_dataset):
         correct += torch.sum(torch.eq(pred_labels, labels)).item()
         total += len(labels)
 
-    accuracy = correct/total
+    accuracy = correct / total
     return accuracy, loss
