@@ -88,9 +88,12 @@ if __name__ == '__main__':
     plt.plot(range(len(epoch_loss)), epoch_loss)
     plt.xlabel('epochs')
     plt.ylabel('Train loss')
-    plt.savefig('../save/nn_{}_{}_{}.png'.format(args.dataset, args.model,
-                                                 args.epochs))
+    # Ensure the directory exists
+    save_dir = os.path.join(os.getcwd(), "save")
+    os.makedirs(save_dir, exist_ok=True)
 
+    # Save the plot
+    plt.savefig(os.path.join(save_dir, 'nn_{}_{}_{}.png'.format(args.dataset, args.model, args.epochs)))
     # testing
     test_acc, test_loss = test_inference(args, global_model, test_dataset)
     print('Test on', len(test_dataset), 'samples')
